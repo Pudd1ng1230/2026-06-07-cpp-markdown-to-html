@@ -1,0 +1,12 @@
+{
+  "name": "md2html-web",
+  "version": "1.0.0",
+  "description": "Markdown → HTML 前端可视化",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}

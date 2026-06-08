@@ -1,6 +1,9 @@
 # 构建产物
 build/
 
+# Node.js
+node_modules/
+
 # IDE
 .vscode/
 .idea/
