@@ -819,6 +819,57 @@ Phase 4 ✅  收尾：内联代码/水平线/引用块/全局实体转义
 - 真正的 C++ 代码在跑，不是 JS 模拟
 - 服务器 50 行代码即可实现
 
-**待实现（下次会话）：**
-- `web/server.js`：Express 静态文件服务 + `/api/convert` 端点
-- `web/index.html`：左右分栏 Markdown 编辑器 + 实时预览
+**已完成（2026-06-08）：**
+- ✅ `web/server.js` — Express 5 后端，50 行
+- ✅ `web/index.html` — 暗色主题，左右分栏，400ms 防抖自动转换
+- ✅ 启动：`cd web && npm install && npm start` → http://localhost:3001
+
+### 实现细节
+
+**server.js 架构：**
+- `POST /api/convert` 接收 `{ markdown: "..." }` JSON
+- 创建临时目录 → 写入 `.md` → spawn `../build/md2html.exe` → 读取 `.html` → 清理临时文件 → 返回 HTML
+- 10 秒超时保护
+- 启动时检查 `md2html.exe` 是否存在
+
+**index.html 特性：**
+- 暗色主题（`#1a1a2e`），左右分栏布局
+- 移动端自动切换为上下布局
+- 状态指示灯：绿=就绪，橙=转换中，红=错误
+- Tab 键插入 4 空格缩进
+- 内置示例 Markdown，开箱即用
+- `iframe srcdoc` 安全渲染，避免 XSS
+
+### 数据流
+
+```
+用户输入 Markdown
+    │  400ms 防抖
+    ▼
+fetch POST /api/convert { markdown }
+    │
+    ▼
+server.js 写临时 .md 文件
+    │
+    ▼
+spawn md2html.exe input.md output.html  ← 真正的 C++ 在跑
+    │
+    ▼
+读取 output.html，返回 JSON { html }
+    │
+    ▼
+preview.srcdoc = html  ← iframe 实时预览
+```
+
+### 为什么不用 WASM
+
+最初计划用 Emscripten 编译为 WebAssembly，但遇到多个阻碍：
+1. `emcc` 未安装，需通过 emsdk 安装
+2. emsdk 需要 Python（当前环境仅 WindowsApps stub）
+3. 完整工具链需数 GB 下载（LLVM + Binaryen + Node.js）
+
+相比之下，Express + spawn C++ 二进制方案：
+- 使用已编译好的 `md2html.exe`，零额外依赖
+- 复用现有 Node.js 知识
+- 真正的 C++ 代码在跑，性能无折扣
+- 50 行后端代码即实现

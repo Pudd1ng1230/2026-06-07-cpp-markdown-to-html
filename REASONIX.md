@@ -99,11 +99,12 @@ make
 ./md2html input.md output.html
 ```
 
-## 下一步：前端可视化（计划中）
+## 前端可视化 ✅ 已完成（2026-06-08）
 
-- 方案：Express 后端 + C++ 二进制（放弃 WASM，Emscripten 工具链安装受阻）
-- 架构：前端 textarea → POST /api/convert → spawn md2html.exe → 返回 HTML → iframe 预览
-- 待创建：`web/server.js`、`web/index.html`
+- ✅ `web/server.js` — Express 后端，POST /api/convert → spawn md2html.exe
+- ✅ `web/index.html` — 暗色主题，左右分栏，400ms 防抖自动转换
+- ✅ 架构：浏览器 textarea → fetch → Express → spawn C++ 二进制 → iframe 预览
+- 启动：`cd web && npm install && npm start` → http://localhost:3001
 
 ## 开发约定
 
