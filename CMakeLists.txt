@@ -12,6 +12,8 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
 add_executable(md2html
     src/main.cpp
     src/utils.cpp
+    src/parser.cpp
+    src/html_renderer.cpp
 )
 
 # 头文件搜索路径

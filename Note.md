@@ -334,3 +334,491 @@ C:/Users/zaoji/AppData/Local/Microsoft/WinGet/Packages/
 ### 本文档更名
 
 从 `Question.md` 更名为 `Note.md`，定位从"问答记录"升级为"持续更新的学习笔记"。以后每学一个新概念、每完成一个 Phase 都会追加到本文档喵。
+
+---
+
+## 八、std::optional 语法详解
+
+> 记录时间：2026-06-07 · Phase 2 开始前学习
+
+### 它是什么
+
+`std::optional<T>` 是 C++17 引入的"可能没有值的盒子"。它解决了一个古老问题：函数想返回一个值，但有时候没有合法的值可以返回。
+
+在 C 时代只能返回 `NULL` 指针或 `-1` 这种魔法数；在 C++17 之前用 `std::pair<bool, T>` 或输出参数。`std::optional` 让"没有值"成为一个类型安全的一等公民。
+
+### 在本项目中的用法
+
+**utils.h 中的声明：**
+```cpp
+std::optional<std::string> read_file(const std::string& path);
+```
+翻译：`read_file` 要么返回一个 `std::string`（文件内容），要么返回"空"（读取失败）。
+
+**utils.cpp 中的实现：**
+```cpp
+// 失败时返回"空"
+if (!file.is_open()) {
+    return std::nullopt;   // ← 这就是"空"，相当于"没有值"
+}
+
+// 成功时返回真正的值
+return buffer.str();        // ← std::string 自动包装进 optional
+```
+
+**main.cpp 中的消费：**
+```cpp
+auto content = utils::read_file(input_path);
+
+if (!content) {             // ← 检查：盒子是空的吗？
+    return 1;               //    是的，读取失败，退出
+}
+
+const std::string html = wrap_html(input_path, *content);
+//                                       ↑
+//                          *content 就是"拆盒"，取出里面的 std::string
+```
+
+### 核心操作一览
+
+| 操作 | 代码 | 含义 |
+|------|------|------|
+| 创建空盒子 | `return std::nullopt;` | 没有值 |
+| 创建有值盒子 | `return "hello";` | 自动包装 |
+| 检查是否有值 | `if (content)` 或 `if (!content)` | 有/无 |
+| 取出值（不安全） | `*content` | 空的会 UB，必须先检查 |
+| 取出值（安全） | `content.value()` | 空的会抛 `std::bad_optional_access` |
+| 取值或默认 | `content.value_or("默认")` | 空的时候给默认值 |
+
+### 为什么比 C 风格好
+
+```cpp
+// ❌ C 风格：返回值既表达数据又表达错误
+int read_file(const char* path, char* out_buffer, int max_size);
+// 返回 -1 表示失败，返回正数表示读取字节数
+// 但万一只读了 0 字节呢？0 和 -1 哪个是错误？
+
+// ✅ C++17：数据和状态分离
+std::optional<std::string> read_file(const std::string& path);
+// 要么给我完整内容，要么告诉我"没有"
+// 不存在歧义
+```
+
+---
+
+## 九、为什么头文件和源文件要各写一次命名空间
+
+> 记录时间：2026-06-07 · Phase 2 开始前学习
+
+### 这不是"写两次"，而是"声明和定义分离"
+
+这是 C++ 多文件编译的基本机制。
+
+| | `utils.h`（头文件） | `utils.cpp`（源文件） |
+|---|---|---|
+| 角色 | 接口承诺 | 功能实现 |
+| 给谁看 | 调用方（main.cpp） | 编译器+链接器 |
+| 内容 | 函数声明 | 函数定义 |
+| 引入方式 | `#include "utils.h"` | 被 CMake 编译 |
+
+**头文件 `utils.h`** 说："存在一个叫 `utils` 的命名空间，里面有两个函数，签名如下... 至于具体怎么实现，去别处找。"
+
+```cpp
+// utils.h — 这是"承诺"
+namespace utils {
+    std::optional<std::string> read_file(const std::string& path);  // 只有声明，没有函数体
+    bool write_file(const std::string& path, const std::string& content);
+}
+```
+
+**源文件 `utils.cpp`** 说："我就是 utils 命名空间的实现。函数体在这里。"
+
+```cpp
+// utils.cpp — 这是"兑现"
+namespace utils {
+    std::optional<std::string> read_file(const std::string& path) {
+        // 这里是函数体 ← 定义
+    }
+    bool write_file(...) { ... }
+}
+```
+
+### 如果漏掉会怎样
+
+```cpp
+// utils.cpp — 假设漏掉了 namespace utils
+std::optional<std::string> read_file(const std::string& path) {
+    // ...
+}
+```
+
+此时这个 `read_file` 属于**全局命名空间**（`::read_file`），而 `utils.h` 声明的是 `utils::read_file`。
+
+- **编译 `utils.cpp`**：没问题，它定义了一个全局函数 `::read_file`
+- **链接阶段**：`main.cpp` 在找 `utils::read_file` 的实现，但整个项目里只有 `::read_file`——**链接错误：undefined reference to `utils::read_file`**
+
+### 类比：快递单号
+
+```
+头文件      →  快递单：「收件人：utils 小区，read_file 包裹」
+源文件      →  包裹上的标签：「寄往：utils 小区，read_file 包裹」
+```
+
+两处的 `namespace utils` 必须一致，包裹才能送达。命名空间是函数全名的一部分，相当于姓。
+
+---
+
+## 十、Phase 2 完成：核心语法解析
+
+> 记录时间：2026-06-08
+
+### 架构设计
+
+Phase 2 引入了 **Parser → 中间表示 → Renderer** 的分层架构：
+
+```
+原始 Markdown 字符串
+      ↓  parse_markdown()
+  std::vector<Block>        ← 中间表示（与 HTML 无关）
+      ↓  render_html()
+  完整 HTML 文档字符串
+      ↓  write_file()
+  output.html
+```
+
+### Block 数据结构
+
+```cpp
+struct Block {
+    enum Type { Heading, Paragraph };
+    Type type;
+    int level;        // 1~6 用于标题，0 用于段落
+    std::string text; // 内联标记（**、*）保留，由渲染器处理
+};
+```
+
+### 解析器（parser.cpp）
+
+逐行读取，状态机逻辑：
+1. 遇到 `# ` ~ `###### ` 开头 → 输出 Heading 块
+2. 遇到空行 → 结束当前段落，输出 Paragraph 块
+3. 其他行 → 积累到段落缓冲区，连续非空行自动合并
+
+同时兼容 Windows 换行符（`\r\n`），去掉行尾 `\r`。
+
+### 渲染器（html_renderer.cpp）
+
+`render_inline()` 函数分两步处理内联格式：
+1. **先处理 `**`**：找 `**...**` 配对，替换为 `<strong>...</strong>`
+2. **再处理 `*`**：找剩余的单个 `*...*`，替换为 `<em>...</em>`
+
+顺序很重要——如果先处理 `*`，会把 `**` 内部的 `*` 误替换掉。
+
+### 新增文件
+
+| 文件 | 作用 |
+|------|------|
+| `src/parser.h` | Block 结构体 + parse_markdown 声明 |
+| `src/parser.cpp` | 逐行解析实现（约 65 行） |
+| `src/html_renderer.h` | render_html 声明 |
+| `src/html_renderer.cpp` | HTML 文档拼接 + 内联格式转换（约 80 行） |
+
+### 改动文件
+
+- `src/main.cpp`：移除 `wrap_html` 函数，改为 `read_file → parse → render → write_file` 流水线
+- `CMakeLists.txt`：`add_executable` 新增 `parser.cpp` + `html_renderer.cpp`
+
+### 编译验证
+
+```
+[ 20%] main.cpp          ✅
+[ 40%] utils.cpp         ✅
+[ 60%] parser.cpp        ✅
+[ 80%] html_renderer.cpp ✅
+[100%] md2html.exe       ✅
+```
+
+5 个编译单元全部通过，零警告。
+
+### 当前项目结构
+
+```
+2026-06-07-cpp-markdown-to-html/
+├── CMakeLists.txt
+├── src/
+│   ├── main.cpp
+│   ├── utils.h / utils.cpp
+│   ├── parser.h / parser.cpp              ← Phase 2 新增
+│   └── html_renderer.h / html_renderer.cpp ← Phase 2 新增
+├── test/
+│   └── sample.md
+├── Note.md
+└── REASONIX.md
+```
+
+### 下一步（Phase 3）
+
+- 无序列表 `- item` → `<ul><li>`
+- 链接 `[text](url)` → `<a href>`
+- 代码块 ` ``` ` → `<pre><code>`
+
+---
+
+## 十一、Phase 3 完成：进阶语法
+
+> 记录时间：2026-06-08
+
+### Block 类型扩展
+
+Phase 3 向 Block 枚举新增了两种类型：
+
+```cpp
+struct Block {
+    enum Type { Heading, Paragraph, UnorderedList, CodeBlock };
+    Type type;
+    int level;                          // 1~6 用于标题
+    std::string text;                   // 标题/段落/代码块内容
+    std::vector<std::string> items;     // 无序列表的列表项
+};
+```
+
+### 无序列表解析
+
+- 识别规则：以 `- `（减号+空格）开头的行
+- 连续的 `- ` 行自动归入同一个 `<ul>` 块
+- 遇到非 `- ` 行或空行时结束列表
+- 列表项内部支持内联格式（`**粗体**`、`*斜体*`、`[链接]`）
+
+```markdown
+- 第一项：学习 **C++ 工程化**
+- 第二项：掌握 *CMake* 构建系统
+```
+→
+```html
+<ul>
+  <li>第一项：学习 <strong>C++ 工程化</strong></li>
+  <li>第二项：掌握 <em>CMake</em> 构建系统</li>
+</ul>
+```
+
+### 链接解析
+
+在 `render_inline` 中新增第三步（`**` → `*` → `[text](url)`）：
+
+```
+查找 '[' → 找匹配的 ']' → 检查后面是否 '(' → 找 ')' → 替换为 <a>
+```
+
+```markdown
+[Markdown 语法指南](https://www.markdownguide.org)
+```
+→
+```html
+<a href="https://www.markdownguide.org">Markdown 语法指南</a>
+```
+
+### 代码块解析
+
+- 识别规则：以 ` ``` ` 开头的行为代码块开始/结束标记
+- 中间的每一行原样保留，不解析任何 Markdown
+- 渲染时对 `<` `>` `&` 做 HTML 实体转义（防止被浏览器当成标签）
+- 未闭合的代码块在文件末尾自动收尾
+
+```cpp
+#include <iostream>
+```
+→
+```html
+<pre><code>#include &lt;iostream&gt;
+</code></pre>
+```
+
+### 状态机演进
+
+parser.cpp 现在有 4 个并行状态：
+
+| 状态 | 变量 | 作用 |
+|------|------|------|
+| 段落积累 | `paragraph_buf` + `in_paragraph` | 连续非空行合并为 `<p>` |
+| 列表积累 | `list_items` + `in_list` | 连续 `- ` 行合并为 `<ul>` |
+| 代码块 | `code_buf` + `in_code_block` | ` ``` ` 之间的内容原样保留 |
+| 标题 | 无状态，立即输出 | `# ` 开头直接生成 Heading 块 |
+
+状态切换规则：
+- 遇到标题 → 先 flush 段落和列表
+- 遇到空行 → flush 段落和列表
+- 遇到 `- ` → flush 段落，开始/继续列表
+- 遇到普通文本 → flush 列表，开始/继续段落
+- 遇到 ` ``` ` → flush 段落和列表，切换代码块模式
+
+### 编译验证
+
+```
+[ 20%] main.cpp          ✅
+[ 40%] parser.cpp        ✅
+[ 60%] html_renderer.cpp ✅
+[100%] md2html.exe       ✅
+```
+
+4 个编译单元全部通过，零警告。
+
+### 下一步（Phase 4：收尾）
+
+- 内联代码 `` `code` `` → `<code>`
+- 水平线 `---` → `<hr>`
+- 引用 `> text` → `<blockquote>`
+- 完善 HTML 实体转义（段落/标题中的 `<` `>` `&`）
+
+---
+
+## 十二、Phase 4 完成：收尾 — 项目完结 🎉
+
+> 记录时间：2026-06-08
+
+### 新增 Block 类型
+
+```cpp
+enum Type { Heading, Paragraph, UnorderedList, CodeBlock, HorizontalRule, Blockquote };
+```
+
+### 水平线解析
+
+判断逻辑 `is_horizontal_rule()`：
+- 行仅由空格 + 同一字符（`-` `*` `_` 之一）组成
+- 该字符至少出现 3 次
+- 例如：`---`、`- - -`、`***`、`___`
+
+### 引用块解析
+
+- 以 `>` 开头的行（`> ` 或 `>`）
+- 连续的 `>` 行自动合并为一个 blockquote
+- 去掉前缀后的文本保留换行
+
+### render_inline 最终顺序
+
+```
+1. 全局转义 < > &   →  &lt; &gt; &amp;   （保护用户文本中的 HTML 字符）
+2. `代码`            →  <code>...</code>  （必须在粗体/斜体之前）
+3. **粗体**          →  <strong>
+4. *斜体*            →  <em>
+5. [text](url)       →  <a href>
+```
+
+**为什么这个顺序？**
+- 先转义：防止正文中的 `<` 被浏览器当标签解析
+- 再内联代码：代码内容已经是转义过的文本，安全嵌入 `<code>`
+- 最后粗体/斜体/链接：`**` `*` `[` 不受转义影响，正常匹配
+
+### 代码块 vs 内联代码的区别
+
+| | 代码块 ` ``` ` | 内联代码 `` ` `` |
+|---|---|---|
+| 解析层 | parser（块级） | renderer（行内） |
+| 转义方式 | 独立转义，不走 render_inline | render_inline 第一步已转义 |
+| 嵌套格式 | 不支持 | 不支持（代码内容原样保留） |
+
+### 引用块嵌套
+
+引用块支持完整的 inline 格式：`> **粗体** `代码` *斜体* [链接]`
+
+```html
+<blockquote>
+<p><strong>引用块也支持内联格式</strong>：可以包含 <code>代码</code>、
+<strong>粗体</strong>、<em>斜体</em> 和 <a href="...">链接</a>。</p>
+</blockquote>
+```
+
+### CSS 新增
+
+```css
+blockquote { border-left: 4px solid #ccc; color: #666; }
+hr { border-top: 2px solid #eee; margin: 2em 0; }
+code { background: #f0f0f0; padding: 0.2em 0.4em; border-radius: 3px; }
+```
+
+### 编译验证
+
+```
+[ 20%] main.cpp          ✅
+[ 40%] parser.cpp        ✅
+[ 60%] html_renderer.cpp ✅
+[100%] md2html.exe       ✅
+```
+
+零警告，零错误。
+
+### 🎉 项目全阶段完成总结
+
+```
+Phase 1 ✅  骨架：CMake + 文件读写 + 静态链接
+Phase 2 ✅  核心：标题/段落/粗体/斜体 + Parser-Renderer 架构
+Phase 3 ✅  进阶：无序列表/链接/代码块
+Phase 4 ✅  收尾：内联代码/水平线/引用块/全局实体转义
+```
+
+### 最终项目结构
+
+```
+2026-06-07-cpp-markdown-to-html/
+├── CMakeLists.txt
+├── src/
+│   ├── main.cpp                           # CLI 入口，调度流水线
+│   ├── utils.h / utils.cpp                # 文件读写
+│   ├── parser.h / parser.cpp              # Markdown 解析器（6 种 Block 类型）
+│   └── html_renderer.h / html_renderer.cpp # HTML 渲染器（5 步内联处理）
+├── test/
+│   └── sample.md                          # 全功能测试样本
+├── Note.md                                # 本文件（12 章学习笔记）
+└── REASONIX.md                            # Agent 权威参考
+```
+
+### 技术收获
+
+| 技能 | 算竞习惯 | 工程习惯 |
+|------|----------|----------|
+| 项目组织 | 单文件 `main.cpp` | 5 个模块，头文件/源文件分离 |
+| 构建 | `g++ main.cpp -o a.exe` | CMake + 静态链接 |
+| 错误处理 | 不管边界 | `std::optional` |
+| 字符串 | `char[]` | `std::string` + `std::string_view` |
+| 代码结构 | 过程式 | 状态机 + 中间表示（Block） |
+| 命名空间 | 无 | `namespace utils` |
+| 内联格式 | N/A | 正则式查找替换，注意顺序 |
+
+---
+
+## 十三、前端可视化探索（WASM 受阻 → Express 方案）
+
+> 记录时间：2026-06-08
+
+### 初始方向：C++ → WebAssembly
+
+尝试用 Emscripten 把 md2html 编译为 `.wasm`，在浏览器中直接运行 C++ 代码。
+
+**遇到的问题：**
+- `emcc` 不可用，需通过 emsdk 安装
+- emsdk 需要 Python（当前 Windows 环境仅 WindowsApps stub，无法使用）
+- 完整安装需下载 LLVM + Binaryen + Node.js（数 GB）
+- GitHub HTTPS 被墙，改用 SSH clone 成功，但 Python 缺失导致后续安装失败
+
+**结论：** Emscripten 工具链在当前环境搭建成本过高，不适合快速原型。
+
+### 最终方案：Express 后端 + C++ 二进制
+
+```
+浏览器                     Node.js 服务器              C++
+┌──────────┐  POST /api   ┌──────────────┐  spawn    ┌──────────────┐
+│ textarea │ ──────────►  │ server.js    │ ────────► │ md2html.exe  │
+│          │              │              │           │              │
+│ iframe   │ ◄──────────  │ temp 文件 I/O │ ◄──────── │ parser+render│
+└──────────┘  HTML 返回   └──────────────┘           └──────────────┘
+```
+
+**优势：**
+- 使用已编译好的 `md2html.exe`，零额外依赖
+- 复用现有 Node.js / Express 知识（Todo Kanban 项目经验）
+- 真正的 C++ 代码在跑，不是 JS 模拟
+- 服务器 50 行代码即可实现
+
+**待实现（下次会话）：**
+- `web/server.js`：Express 静态文件服务 + `/api/convert` 端点
+- `web/index.html`：左右分栏 Markdown 编辑器 + 实时预览

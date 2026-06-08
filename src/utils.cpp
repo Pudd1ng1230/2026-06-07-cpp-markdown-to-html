@@ -1,23 +1,21 @@
-#include "utils.h"
+﻿#include "utils.h"
 
-#include <fstream>   // ifstream / ofstream
-#include <sstream>   // stringstream
-#include <iostream>  // cerr
+#include <fstream>
+#include <sstream>
+#include <iostream>
 
 namespace utils {
 
-bool read_file(const std::string& path, std::string& out_content) {
+std::optional<std::string> read_file(const std::string& path) {
     std::ifstream file(path);
     if (!file.is_open()) {
         std::cerr << "错误：无法打开文件 \"" << path << "\"\n";
-        return false;
+        return std::nullopt;
     }
 
-    // 把整个流读进 stringstream 再转成 string
     std::stringstream buffer;
     buffer << file.rdbuf();
-    out_content = buffer.str();
-    return true;
+    return buffer.str();
 }
 
 bool write_file(const std::string& path, const std::string& content) {
