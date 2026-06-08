@@ -1,30 +1,6 @@
-# C++ 工程学习笔记
 
-> 从算竞到工程的成长记录 · 持续更新中 · 始于 2026-06-01
 
----
-
-## 一、前端是不是太简单了？现在的趋势是全栈吗？
-
-### 回答
-
-**半对半错。** 静态页面确实不够用了，但不是"前端不重要了"，而是"前端变深了"。
-
-一个现代前端工程师实际在做什么：
-
-| 层级 | 内容 | 例子 |
-|------|------|------|
-| 静态页面 | HTML + CSS + 原生 JS | 10 年前的前端 |
-| 框架层 | React / Vue / Angular 组件化开发 | MovieTracker 的 8 个页面 |
-| 状态管理 | 跨组件共享数据、缓存、乐观更新 | 先改 UI 再发请求 |
-| 工程化 | Vite/Webpack 打包、Tree Shaking、HMR、Proxy | `vite.config.js` |
-| 全栈边界 | Next.js/Nuxt SSR、API Routes、中间件 | 前后端一体项目 |
-
-纯切图仔确实被淘汰了，但懂 React 生态、懂工程化、懂性能优化的前端工程师仍然是刚需。MovieTracker 项目前端占了 60% 工作量（状态管理、乐观更新、图表组件、路由设计），后端反而比较薄。
-
----
-
-## 二、后端 Java 最卷，MovieTracker 为什么不用 Java？
+## MovieTracker 为什么不用 Java？
 
 ### 回答
 
@@ -44,7 +20,7 @@ Java 的真正优势在：几十人团队协作的类型安全、编译期检查
 
 ---
 
-## 三、C++ 可以用来写小型项目吗？
+## C++ 可以用来写小型项目吗？
 
 ### 回答
 
@@ -72,7 +48,7 @@ Java 的真正优势在：几十人团队协作的类型安全、编译期检查
 
 ---
 
-## 四、想进入 C++ 开发岗，需要学什么？
+
 
 ### 现有基础（算竞带来）
 
@@ -193,11 +169,11 @@ target_compile_features(my_app PRIVATE cxx_std_20)
 
 用 C++ 实现 HTTP REST API 服务器（cpp-httplib）+ React 前端 + SQLite 存储。代码量 1000-1500 行，展示 C++ 功底 + 全栈能力，面试官一眼能看出你和纯 Web 培训出来的候选人的区别。
 
----
+
 
 ---
 
-## 五、第一个 C++ 项目启动：Markdown → HTML 转换工具
+## 第一个 C++ 项目启动：Markdown → HTML 转换工具
 
 > 记录时间：2026-06-07
 
@@ -229,7 +205,7 @@ target_compile_features(my_app PRIVATE cxx_std_20)
 
 ---
 
-## 六、工程文件结构：src/、test/、CMakeLists.txt 是什么？
+## 工程文件结构：src/、test/、CMakeLists.txt 是什么？
 
 > 记录时间：2026-06-07 · Phase 1 搭建中学习
 
@@ -287,7 +263,7 @@ CMakeLists.txt          ← 你写的"编译说明书"
 
 ---
 
-## 七、Phase 1 完成：骨架搭建 + 工具链升级
+## Phase 1 完成：骨架搭建 + 工具链升级
 
 > 记录时间：2026-06-07
 
@@ -337,7 +313,7 @@ C:/Users/zaoji/AppData/Local/Microsoft/WinGet/Packages/
 
 ---
 
-## 八、std::optional 语法详解
+## std::optional 语法详解
 
 > 记录时间：2026-06-07 · Phase 2 开始前学习
 
@@ -406,7 +382,7 @@ std::optional<std::string> read_file(const std::string& path);
 
 ---
 
-## 九、为什么头文件和源文件要各写一次命名空间
+## 为什么头文件和源文件要各写一次命名空间
 
 > 记录时间：2026-06-07 · Phase 2 开始前学习
 
@@ -468,7 +444,7 @@ std::optional<std::string> read_file(const std::string& path) {
 
 ---
 
-## 十、Phase 2 完成：核心语法解析
+## Phase 2 完成：核心语法解析
 
 > 记录时间：2026-06-08
 
@@ -564,7 +540,7 @@ struct Block {
 
 ---
 
-## 十一、Phase 3 完成：进阶语法
+## Phase 3 完成：进阶语法
 
 > 记录时间：2026-06-08
 
@@ -671,7 +647,7 @@ parser.cpp 现在有 4 个并行状态：
 
 ---
 
-## 十二、Phase 4 完成：收尾 — 项目完结 🎉
+## Phase 4 完成：收尾 — 项目完结 🎉
 
 > 记录时间：2026-06-08
 
@@ -786,7 +762,7 @@ Phase 4 ✅  收尾：内联代码/水平线/引用块/全局实体转义
 
 ---
 
-## 十三、前端可视化探索（WASM 受阻 → Express 方案）
+## 前端可视化探索（WASM 受阻 → Express 方案）
 
 > 记录时间：2026-06-08
 
