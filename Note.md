@@ -849,3 +849,255 @@ preview.srcdoc = html  ← iframe 实时预览
 - 复用现有 Node.js 知识
 - 真正的 C++ 代码在跑，性能无折扣
 - 50 行后端代码即实现
+
+---
+
+## src/ 模块详解
+
+> 记录时间：2026-06-13 · 项目审阅时整理
+
+### 概览
+
+整个 `src/` 目录实现了 4 个模块、6 个文件（3 对 `.h` + `.cpp`），外加一个 `main.cpp` 入口。它们构成一条清晰的流水线：
+
+```
+main.cpp (总调度)
+   │
+   ├─► utils.h / utils.cpp      ← 文件读写工具
+   ├─► parser.h / parser.cpp    ← Markdown 解析器
+   └─► html_renderer.h / html_renderer.cpp  ← HTML 渲染器
+```
+
+| 文件 | 一句话 |
+|------|--------|
+| `utils.h/cpp` | 管文件读写的"工具箱" |
+| `parser.h/cpp` | 把 Markdown 文本拆成结构化 Block 的"拆解工" |
+| `html_renderer.h/cpp` | 把 Block 拼成 HTML 网页的"组装工" |
+| `main.cpp` | 把上面三位串起来的"调度员" |
+
+---
+
+### 1. utils.h + utils.cpp — 文件读写工具
+
+**职责**：整个项目最底层的"积木"。封装文件的读和写，让其他模块不需要碰 `std::ifstream`。
+
+**头文件** `utils.h` 做的事：
+
+```cpp
+namespace utils {
+    std::optional<std::string> read_file(const std::string& path);
+    bool write_file(const std::string& path, const std::string& content);
+}
+```
+
+- 用 `namespace utils` 把两个函数包起来，避免和其他模块的函数名冲突（比如别处可能也有个 `read_file`）
+- `read_file` 返回 `std::optional<std::string>`，表达"可能读到、也可能读不到"——读到就返回内容，读不到就返回"空"
+
+**源文件** `utils.cpp` 做的事：
+- `read_file`：打开文件 → 用 `stringstream` 把整个文件内容吸进内存 → 返回
+- `write_file`：打开文件 → 把字符串灌进去 → 返回是否成功
+- 出错时往 `std::cerr` 打印错误信息
+
+**为什么单独拆出来？** 这是工程化的第一课——"复用"。以后不管什么项目，文件读写都可以直接复用这个模块，不用每次写 `ifstream` 那十几行样板代码。
+
+---
+
+### 2. parser.h + parser.cpp — Markdown 解析器
+
+**职责**：把原始 Markdown 字符串 → 解析成一串"块"（`std::vector<Block>`）。这是整个项目最核心的模块，也是代码量最大的。
+
+**头文件** `parser.h` 定义了两样东西：
+
+**① Block 结构体**（中间表示的核心）：
+
+```cpp
+struct Block {
+    enum Type { Heading, Paragraph, UnorderedList, CodeBlock, HorizontalRule, Blockquote };
+    Type type;
+    int level;                      // 1~6 用于标题
+    std::string text;               // 标题/段落/代码块的文本
+    std::vector<std::string> items; // 无序列表的各项
+};
+```
+
+这是一个"万能盒子"——不管 Markdown 里是什么语法，解析后都变成一个 `Block`：
+- 遇到 `# 标题` → `{Heading, level=1, text="标题"}`
+- 遇到 `- 列表项` → `{UnorderedList, items=["列表项1", "列表项2"]}`
+- 遇到 ` ```代码``` ` → `{CodeBlock, text="代码内容"}`
+- 遇到普通段落 → `{Paragraph, text="段落文本"}`
+
+注意 `text` 里还保留着 `**粗体**`、`*斜体*`、`[链接]` 这些 Markdown 标记，**不做处理**——那是渲染器的活。
+
+**② 核心函数声明**：
+
+```cpp
+std::vector<Block> parse_markdown(const std::string& md);
+```
+
+输入原始 Markdown 字符串，输出 Block 列表。
+
+**源文件** `parser.cpp` — 这是项目中最复杂的文件（~200 行），实现了一个**6 状态状态机**：
+
+```
+状态机同时追踪 6 条"生产线"：
+
+  paragraph_buf    → 积累连续的非特殊行，最后 flush 成 Paragraph 块
+  list_items       → 积累连续的 "- " 行，最后 flush 成 UnorderedList 块
+  code_buf         → 积累 ``` 之间的所有内容，最后 flush 成 CodeBlock 块
+  blockquote_buf   → 积累连续的 "> " 行，最后 flush 成 Blockquote 块
+  (标题)           → 无缓冲区，识别后立即生成 Heading 块
+  (水平线)         → 无缓冲区，识别后立即生成 HorizontalRule 块
+```
+
+逐行读取 Markdown，每读一行按照优先级判断它属于哪种块：
+
+```
+优先级判定顺序（while 循环）：
+  1. 当前在代码块内？ → 加到 code_buf，检测结束 ```
+  2. 当前行是 ```？    → flush 所有缓冲区，进入代码块模式
+  3. 当前行是 ---？    → flush 所有缓冲区，生成水平线
+  4. 当前行是 "- "？   → flush 段落/引用，加入列表
+  5. 当前行是 ">"？    → flush 段落/列表，加入引用块
+  6. 当前行是 "# "？   → flush 全部，生成标题
+  7. 当前行是空行？    → flush 段落/列表/引用
+  8. 其他              → flush 列表/引用，加入段落
+```
+
+几个关键设计：
+- 遇到特殊行时先 **flush** 之前积累的同类型缓冲区（比如遇到标题前，先把未结束的段落输出）
+- 连续的空行也参与 flush，这是 Markdown 的标准语义
+- 代码块内的内容**完全不做解析**，连 `\r` 都保留（只有行尾 `\r` 在 while 循环入口统一去掉）
+- 文件末尾强制收尾——未闭合的代码块也会被输出
+
+**为什么这就是"工程思维"？** 在算竞中，解析一个字符串可能就是 20 行 `while` + `if`。但这里用了状态机、缓冲区管理、flush 闭包、类型枚举——代码虽然长了，但逻辑分层清晰，要加新语法（比如表格）只需要加一个状态 + 一个 Block 类型，不影响已有的 6 种状态。
+
+---
+
+### 3. html_renderer.h + html_renderer.cpp — HTML 渲染器
+
+**职责**：把解析器产出的 `std::vector<Block>` → 拼成完整的 HTML 文档字符串。这个模块**不关心 Markdown 语法**，只关心"Block 怎么变成 HTML 标签"。
+
+**头文件** `html_renderer.h`：
+
+```cpp
+std::string render_html(const std::string& title,
+                        const std::vector<Block>& blocks);
+```
+
+输入标题（用于 `<title>`）和 Block 列表，输出完整 HTML 字符串。
+
+**源文件** `html_renderer.cpp` 包含两个核心函数：
+
+**① `render_inline(text)` — 行内格式处理**
+
+这是渲染器最精妙的部分，按顺序做 5 件事：
+
+```
+输入文本（可能包含 **、*、`、[链接]）
+  │
+  ├─ 第一步：实体转义   < → &lt;   > → &gt;   & → &amp;
+  │   目的：防止用户写的 "<div>" 被浏览器当成真实标签
+  │
+  ├─ 第二步：内联代码   `code` → <code>code</code>
+  │   必须在粗体之前，因为代码里的 * 不应被解析
+  │
+  ├─ 第三步：粗体       **text** → <strong>text</strong>
+  │
+  ├─ 第四步：斜体       *text* → <em>text</em>
+  │   在粗体之后，因为 ** 消耗了两个 *
+  │
+  ├─ 第五步：链接       [text](url) → <a href="url">text</a>
+  │
+  ▼
+输出纯 HTML 片段（可直接嵌入到标签内）
+```
+
+**为什么是这个顺序？** 举个反例：如果先处理链接再处理粗体，`[**click**](url)` 中的 `**` 会先被当成链接的一部分而不会被加粗。现在的顺序保证了每种格式都能在正确的上下文中被处理。
+
+**② `render_block(block)` — 单块渲染**
+
+把一种 Block 转成一个 HTML 片段：
+
+| Block 类型 | HTML 输出 | 说明 |
+|-----------|-----------|------|
+| `Heading` | `<h1>`~`<h6>` | level 决定数字 |
+| `Paragraph` | `<p>` | 内容走 render_inline |
+| `UnorderedList` | `<ul><li>...</li></ul>` | 遍历 items |
+| `CodeBlock` | `<pre><code>` | 单独实体转义，不走 render_inline |
+| `HorizontalRule` | `<hr>` | 无内容，直接输出 |
+| `Blockquote` | `<blockquote><p>...</p></blockquote>` | 内容走 render_inline |
+
+**③ `render_html(title, blocks)` — 整体拼接**
+
+用 C++ 的 Raw String Literal（`R"(...)"`）直接把 HTML 模板写在代码里：
+- 输出 `<!DOCTYPE html>` + `<head>`（含标题和内嵌 CSS）
+- 遍历所有 Block，逐个调用 `render_block`
+- 收尾 `</body></html>`
+
+内嵌的 CSS 让输出的 HTML 文件有漂亮的排版——标题有下划线、代码有灰底、引用有左侧竖线。
+
+---
+
+### 4. main.cpp — 程序入口
+
+**职责**：把所有模块串起来，不多做任何事——这就是一个好的 `main`。
+
+```cpp
+int main(int argc, char* argv[]) {
+    // 1. 检查参数：必须恰好 2 个（输入.md 输出.html）
+    // 2. utils::read_file(input) → 读取 Markdown
+    // 3. parse_markdown(content) → 解析为 Block 列表
+    // 4. render_html(title, blocks) → 渲染为 HTML
+    // 5. utils::write_file(output, html) → 写入文件
+    // 6. 打印"转换完成"
+}
+```
+
+仅仅 36 行，每一行都在"调度"，不干具体的活。具体的活都交给下面三个模块。这种风格叫 **"胶水代码"**——main 是胶水，把各个模块粘在一起。
+
+---
+
+### Parser 和 Renderer 的分工总结
+
+| | Parser | Renderer |
+|---|---|---|
+| 处理什么 | 块级结构（哪行是标题、哪行是列表） | 行内格式（哪段是粗体、哪段是链接） |
+| 产出什么 | `vector<Block>` | HTML 字符串 |
+| 关心的语法 | `#`、`-`、`>`、` ``` `、`---` | `**`、`*`、`` ` ``、`[]()` |
+| 是否知道 HTML | **不知道** | **知道** |
+
+这就是经典的"中间表示"设计——Parser 和 Renderer 之间只通过 `Block` 结构体通信，互不依赖。将来如果想把输出格式从 HTML 换成 PDF 或者纯文本，只需要换一个 Renderer，Parser 一行都不用改。
+
+---
+
+### 依赖关系图
+
+```
+main.cpp
+  ├── #include "utils.h"         → 用 read_file / write_file
+  ├── #include "parser.h"        → 用 parse_markdown
+  └── #include "html_renderer.h" → 用 render_html
+
+parser.h       → 只依赖 <string> <vector>（标准库）
+parser.cpp     → 只依赖 parser.h
+
+html_renderer.h → 依赖 parser.h（需要 Block 结构体定义）
+html_renderer.cpp → 依赖 html_renderer.h
+
+utils.h        → 只依赖 <optional> <string>
+utils.cpp      → 只依赖 utils.h
+```
+
+依赖关系是单向的、清晰的——没有循环依赖，每个模块只知道自己需要什么。这也是工程化的标志。
+
+---
+
+### 从算竞到工程的转变
+
+这就是从"算竞单文件"到"工程多文件"的核心转变——不是把代码拆开就完事了，而是要：
+
+1. **每个文件有单一职责**（utils 只管文件、parser 只管解析、renderer 只管渲染）
+2. **互相之间只暴露最少接口**（头文件里只有函数声明，实现细节锁在 .cpp 里）
+3. **通过中间表示（Block）通信**（parser 不知道 HTML，renderer 不知道 Markdown 解析规则）
+
+这三个原则，就是"工程代码组织"的本质。
